@@ -6,7 +6,6 @@ import (
 	"github.com/hegedustibor/htgo-tts/handlers"
 	"github.com/hegedustibor/htgo-tts/voices"
 	"image/color"
-	"log"
 	"math/rand"
 	"os/exec"
 	"sort"
@@ -186,15 +185,17 @@ func selectJoseca() {
 	mutex.Unlock()
 
 	speech := htgotts.Speech{Folder: "audio", Language: voices.Spanish, Handler: &handlers.MPlayer{}}
-	err := speech.Speak("El juego de la ruleta ha comenzado, y el primer turno es de ¡Joseca!")
+	err := speech.Speak("¡Joseca!")
 	if err != nil {
 		return
 	}
 
-	err = playAudio("audio/feria.mp3")
-	if err != nil {
-		log.Fatalf("Error al reproducir el audio: %v", err)
-	}
+	/*
+		err = playAudio("audio/feria.mp3")
+		if err != nil {
+			log.Fatalf("Error al reproducir el audio: %v", err)
+		}
+	*/
 
 }
 
@@ -209,6 +210,12 @@ func selectRandomTurno() {
 		selectedLabel.Text = "Todos los turnos completados"
 		selectedLabel.Refresh()
 		animating = false
+
+		speech := htgotts.Speech{Folder: "audio", Language: voices.Spanish, Handler: &handlers.MPlayer{}}
+		err := speech.Speak("¡TODO LISTO!")
+		if err != nil {
+			return
+		}
 		return
 	}
 
@@ -227,7 +234,7 @@ func getAvailableTurnos() []int {
 }
 
 func animateSelection(finalIndex int, availableTurnos []int) {
-	animationDuration := 5 * time.Second
+	animationDuration := 2 * time.Second
 	stepDuration := animationDuration / time.Duration(len(availableTurnos)*2)
 
 	for i := 0; i < len(availableTurnos)*2; i++ {
@@ -270,17 +277,10 @@ func finalizeSelection(finalIndex int) {
 	mutex.Unlock()
 
 	speech := htgotts.Speech{Folder: "audio", Language: voices.Spanish, Handler: &handlers.MPlayer{}}
-	err := speech.Speak("Es el turno de, " + turnos[finalIndex].Palabra + ", " + getRandomMotivationEnding())
+	err := speech.Speak(turnos[finalIndex].Palabra)
 	if err != nil {
 		return
 	}
-}
-
-func getRandomMotivationEnding() string {
-	//List of motivation endings: Venga, tú puedes, ¡A por ello!, ¡Vamos allá!, ¡Dale caña!, ¡A por todas!, ¡Vamos!
-	motivationEndings := []string{"estamos esperando", "dale rápido o se colará otro u otra", "si no empiezas, se te saltará el turno",
-		"si no resuelves tú, resuelvo yo", "a por el bote, o e", "pero venga, que no tenemos todo el día", "con esta persona la daily al final será literalmente el día completo"}
-	return motivationEndings[rand.New(rand.NewSource(time.Now().UnixNano())).Intn(len(motivationEndings))]
 }
 
 func completeCurrentTurno() {
