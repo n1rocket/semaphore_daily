@@ -41,25 +41,27 @@
     socket = new WebSocket("ws://localhost:8080/ws");
 
     socket.addEventListener("open", () => {
-      console.log("Conexión WebSocket abierta.");
-
-      // Enviar mensaje inicial con el nombre
-      const initMessage = {
+      // Enviar el nombre de usuario al servidor
+      const initMsg = JSON.stringify({
         name: userName,
-      };
-      console.log("Enviando mensaje inicial:", initMessage);
-      socket.send(JSON.stringify(initMessage));
+      });
+      console.log("Enviando mensaje inicial: " + initMsg);
+      socket.send(initMsg);
     });
 
     socket.addEventListener("message", (event) => {
-      const msg = JSON.parse(event.data);
-      console.log("Mensaje recibido del servidor:", msg);
-      handleMessage(msg);
+      try {
+        const msg = JSON.parse(event.data);
+        handleMessage(msg);
+      } catch (error) {
+        console.error("Error al parsear el mensaje:", event.data, error);
+      }
     });
 
     socket.addEventListener("close", () => {
-      console.log("Conexión WebSocket cerrada.");
-      alert("Conexión cerrada. Por favor, recarga la página.");
+      console.log("Conexión cerrada.");
+      alert("Conexión con el servidor perdida.");
+      location.reload();
     });
   }
 
@@ -91,6 +93,7 @@
       document
         .getElementById("pressButton")
         .addEventListener("click", pressButton);
+
       document
         .getElementById("endTurnButton")
         .addEventListener("click", endTurn);
@@ -100,15 +103,22 @@
       document
         .getElementById("startMeetingButton")
         .addEventListener("click", startMeeting);
+
       document
-        .getElementById("toggleSemaphoreButton")
-        .addEventListener("click", toggleSemaphore);
+        .getElementById("startSemaphoreButton")
+        .addEventListener("click", startSemaphore);
+
       document
         .getElementById("skipTurnButton")
         .addEventListener("click", skipTurn);
+
       document
         .getElementById("resetMeetingButton")
         .addEventListener("click", resetMeeting);
+
+      document
+        .getElementById("addVirtualUserButton")
+        .addEventListener("click", addVirtualUser);
     }
 
     updateRoomState();
@@ -119,8 +129,9 @@
     return `
           <div class="master-controls">
               <button id="startMeetingButton">Iniciar Reunión</button>
-              <button id="toggleSemaphoreButton">Alternar Semáforo</button>
+              <button id="startSemaphoreButton">Iniciar Semáforo</button>
               <button id="skipTurnButton">Saltar Turno</button>
+              <button id="addVirtualUserButton">Añadir Usuario Virtual</button>
               <button id="resetMeetingButton">Reiniciar Reunión</button>
           </div>
       `;
@@ -131,201 +142,131 @@
 
     switch (msg.type) {
       case "initial_role":
+        console.log("Mensaje initial_role recibido:", msg);
         isMaster = msg.payload.isMaster;
-        console.log("Rol recibido: isMaster=" + isMaster);
         renderMeeting();
         break;
-      case "you_are_master":
-        isMaster = true;
-        console.log("Ahora eres el master.");
-        renderMeeting();
-        break;
-      case "user_list":
-        console.log("Lista de usuarios conectados actualizada.");
-        updateUserList(msg.payload);
-        break;
-      case "semaphore_toggled":
-        // Obsoleto, ahora usamos 'meeting_state'
-        break;
+
       case "meeting_state":
+        console.log("Mensaje meeting_state recibido:", msg);
         currentState.meetingStarted = msg.payload.meetingStarted;
         currentState.semaphoreGreen = msg.payload.semaphoreGreen;
-        console.log("Estado de la reunión actualizado:", currentState);
         updateRoomState();
         updateSemaphore();
         break;
+
+      case "user_list":
+        console.log("Mensaje user_list recibido:", msg);
+        updateUserList(msg.payload);
+        break;
+
       case "turn_order":
-        console.log("Orden de turnos actualizado.");
+        console.log("Mensaje turn_order recibido:", msg);
         updateTurnOrder(msg.payload);
         break;
-      case "next_turn":
-        console.log("Es el turno de: " + msg.payload);
+
+      case "next_speaker":
+        console.log("Mensaje next_speaker recibido:", msg);
         startNextTurn(msg.payload);
         break;
-      case "turn_started":
-        console.log("Turno iniciado para: " + msg.payload);
-        break;
-      case "meeting_started":
-        console.log("La reunión ha comenzado.");
-        currentState.meetingStarted = true;
-        updateRoomState();
-        break;
+
       case "meeting_reset":
-        console.log("La reunión ha sido reiniciada.");
-        alert("La reunión ha sido reiniciada.");
+        alert("La reunión ha sido reiniciada por el master.");
         location.reload();
         break;
-      case "tts":
-        console.log("Anunciando siguiente orador: " + msg.payload);
-        announceNextSpeaker(msg.payload);
-        break;
-      case "meeting_finished":
-        console.log("La reunión ha finalizado.");
-        showUserTimes(msg.payload);
-        break;
+
       default:
         console.log("Tipo de mensaje desconocido:", msg.type);
     }
   }
 
   function updateRoomState() {
-    const roomStateElement = document.getElementById("roomState");
-    if (currentState.meetingStarted) {
-      roomStateElement.innerHTML = "<p>Estado: Reunión en curso</p>";
-    } else {
-      roomStateElement.innerHTML =
-        "<p>Estado: Esperando a que el master inicie la reunión</p>";
-    }
+    const stateDiv = document.getElementById("roomState");
+    stateDiv.textContent = currentState.meetingStarted
+      ? "La reunión ha comenzado."
+      : "Esperando a que el master inicie la reunión.";
   }
 
   function updateSemaphore() {
-    const semaphore = document.getElementById("semaphore");
-    const pressButton = document.getElementById("pressButton");
-
+    const semaphoreDiv = document.getElementById("semaphore");
     if (currentState.semaphoreGreen) {
-      semaphore.classList.add("green");
-      if (!isMaster && !currentState.meetingStarted && !hasPressedButton) {
-        pressButton.disabled = false;
+      semaphoreDiv.classList.add("green");
+      if (!hasPressedButton && !isMaster) {
+        document.getElementById("pressButton").disabled = false;
       }
     } else {
-      semaphore.classList.remove("green");
+      semaphoreDiv.classList.remove("green");
       if (!isMaster) {
-        pressButton.disabled = true;
+        document.getElementById("pressButton").disabled = true;
       }
     }
   }
 
   function pressButton() {
-    console.log("Presionaste el botón para unirte al orden de turnos.");
-    socket.send(
-      JSON.stringify({
-        type: "press_button",
-      })
-    );
-    hasPressedButton = true;
-    document.getElementById("pressButton").disabled = true;
-  }
-
-  function updateUserList(users) {
-    const connectedUsersElement = document.getElementById("connectedUsers");
-    connectedUsersElement.innerHTML = "<h3>Usuarios Conectados:</h3>";
-    users.forEach((name) => {
-      const p = document.createElement("p");
-      p.textContent = name;
-      connectedUsersElement.appendChild(p);
-    });
-  }
-
-  function updateTurnOrder(order) {
-    const turnOrderElement = document.getElementById("turnOrder");
-    turnOrderElement.innerHTML =
-      '<h3>Orden de Turnos:</h3><ul id="turnOrderList"></ul>';
-
-    const turnOrderList = document.getElementById("turnOrderList");
-    order.forEach((name) => {
-      const li = document.createElement("li");
-      li.textContent = name;
-      turnOrderList.appendChild(li);
-    });
-
-    if (isMaster) {
-      // Hacer la lista ordenable
-      new Sortable(turnOrderList, {
-        animation: 150,
-        onEnd: () => {
-          const newOrder = Array.from(turnOrderList.children).map(
-            (li) => li.textContent
-          );
-          console.log("Nuevo orden de turnos:", newOrder);
-          socket.send(
-            JSON.stringify({
-              type: "reorder_turn_order",
-              payload: newOrder,
-            })
-          );
-        },
-      });
+    if (currentState.semaphoreGreen && !hasPressedButton) {
+      console.log("Has presionado el botón para tomar el turno.");
+      socket.send(
+        JSON.stringify({
+          type: "press_button",
+        })
+      );
+      hasPressedButton = true;
+      document.getElementById("pressButton").disabled = true;
+    } else {
+      alert("No puedes presionar el botón en este momento.");
     }
   }
 
-  function startNextTurn(name) {
-    const currentSpeakerElement = document.getElementById("currentSpeaker");
-    currentSpeakerElement.innerHTML = `<h3>Está hablando: ${name}</h3>`;
+  function updateUserList(users) {
+    const usersDiv = document.getElementById("connectedUsers");
+    usersDiv.innerHTML = "<h3>Usuarios Conectados:</h3><ul>";
+    users.forEach((user) => {
+      usersDiv.innerHTML += `<li>${user}</li>`;
+    });
+    usersDiv.innerHTML += "</ul>";
+  }
 
+  function updateTurnOrder(order) {
+    const turnDiv = document.getElementById("turnOrder");
+    turnDiv.innerHTML = "<h3>Orden de Turnos:</h3><ul>";
+    order.forEach((user) => {
+      turnDiv.innerHTML += `<li>${user}</li>`;
+    });
+    turnDiv.innerHTML += "</ul>";
+  }
+
+  function startNextTurn(name) {
+    const speakerDiv = document.getElementById("currentSpeaker");
+    speakerDiv.innerHTML = `<h3>Es el turno de: ${name}</h3>`;
     if (name === userName) {
-      // Es nuestro turno
       isSpeaking = true;
-      speakingStartTime = new Date();
-      document.getElementById("endTurnButton").classList.remove("hidden");
-      // Iniciar el turno
-      console.log("Es tu turno de hablar.");
-      socket.send(
-        JSON.stringify({
-          type: "start_turn",
-        })
-      );
+      speakingStartTime = Date.now();
+      if (!isMaster) {
+        const endButton = document.getElementById("endTurnButton");
+        endButton.classList.remove("hidden");
+      }
     } else {
       isSpeaking = false;
-      document.getElementById("endTurnButton").classList.add("hidden");
+      if (!isMaster) {
+        const endButton = document.getElementById("endTurnButton");
+        endButton.classList.add("hidden");
+      }
     }
   }
 
   function endTurn() {
     if (isSpeaking) {
-      const turnTime = new Date() - speakingStartTime;
-      console.log(
-        "Terminaste tu turno. Tiempo utilizado: " +
-          turnTime / 1000 +
-          " segundos."
-      );
+      const totalTime = (Date.now() - speakingStartTime) / 1000;
+      console.log(`Has terminado tu turno. Tiempo: ${totalTime.toFixed(2)} s`);
       socket.send(
         JSON.stringify({
           type: "end_turn",
-          payload: turnTime,
         })
       );
       isSpeaking = false;
-      document.getElementById("endTurnButton").classList.add("hidden");
+      const endButton = document.getElementById("endTurnButton");
+      endButton.classList.add("hidden");
     }
-  }
-
-  function announceNextSpeaker(name) {
-    const utterance = new SpeechSynthesisUtterance(`Es el turno de ${name}`);
-    speechSynthesis.speak(utterance);
-  }
-
-  function showUserTimes(times) {
-    app.innerHTML = "<h2>Reunión Finalizada</h2>";
-    const timesDiv = document.createElement("div");
-    timesDiv.innerHTML = "<h3>Tiempos Utilizados:</h3>";
-    const ul = document.createElement("ul");
-    times.forEach((user) => {
-      const li = document.createElement("li");
-      li.textContent = `${user.name}: ${user.turnTime.toFixed(2)} segundos`;
-      ul.appendChild(li);
-    });
-    timesDiv.appendChild(ul);
-    app.appendChild(timesDiv);
   }
 
   // Funciones para el master
@@ -338,11 +279,11 @@
     );
   }
 
-  function toggleSemaphore() {
-    console.log("Alternaste el semáforo.");
+  function startSemaphore() {
+    console.log("Iniciaste el semáforo.");
     socket.send(
       JSON.stringify({
-        type: "toggle_semaphore",
+        type: "start_semaphore",
       })
     );
   }
@@ -357,10 +298,21 @@
   }
 
   function resetMeeting() {
-    console.log("Reiniciaste la reunión.");
+    if (confirm("¿Estás seguro de reiniciar la reunión?")) {
+      console.log("Reiniciaste la reunión.");
+      socket.send(
+        JSON.stringify({
+          type: "reset_meeting",
+        })
+      );
+    }
+  }
+
+  function addVirtualUser() {
+    console.log("Añadiste un usuario virtual.");
     socket.send(
       JSON.stringify({
-        type: "reset_meeting",
+        type: "add_virtual_user",
       })
     );
   }

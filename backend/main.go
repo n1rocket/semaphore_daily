@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"log"
+	"math/rand"
 	"net/http"
 	"sync"
 	"time"
@@ -13,12 +14,14 @@ import (
 
 // Estructura para representar a un usuario
 type User struct {
-	Name     string
-	Conn     *websocket.Conn
-	IsMaster bool
-	Speaking bool
-	TurnTime time.Duration
-	JoinedAt time.Time
+	Name      string
+	Conn      *websocket.Conn
+	IsMaster  bool
+	Speaking  bool
+	TurnTime  time.Duration
+	JoinedAt  time.Time
+	HasSpoken bool
+	PressedAt time.Time
 }
 
 // Estructura para el mensaje WebSocket
@@ -34,12 +37,11 @@ var master *User
 
 // Variables para controlar el estado de la reunión
 var (
-	meetingStarted    = false
-	semaphoreGreen    = false
-	turnOrder         = []*User{}
-	currentSpeaker    *User
-	meetingMutex      = &sync.Mutex{}
-	speakingStartTime time.Time
+	meetingStarted = false
+	semaphoreGreen = false
+	turnOrder      = []*User{}
+	currentSpeaker *User
+	meetingMutex   = &sync.Mutex{}
 )
 
 // Configuración del upgrader para WebSocket
@@ -50,7 +52,7 @@ var upgrader = websocket.Upgrader{
 }
 
 func main() {
-	router := gin.Default()
+	router := gin.New()
 
 	router.GET("/ws", handleWebSocket)
 	router.POST("/reset", resetMeeting)
@@ -64,7 +66,6 @@ func handleWebSocket(c *gin.Context) {
 		log.Println("Error al actualizar a WebSocket:", err)
 		return
 	}
-	// defer conn.Close() // No cerrar aquí, lo haremos cuando el usuario se desconecte
 
 	log.Println("Nueva conexión WebSocket establecida.")
 
@@ -95,13 +96,19 @@ func handleWebSocket(c *gin.Context) {
 	}
 
 	usersMutex.Lock()
+	log.Print("userMutex on")
 	if master == nil {
 		user.IsMaster = true
 		master = user
 		log.Printf("El usuario %s ha sido asignado como master.", user.Name)
 	}
 	users[conn] = user
+	log.Print("userMutex off")
 	usersMutex.Unlock()
+
+	for u := range users {
+		log.Printf("Usuario %s conectado.", users[u].Name)
+	}
 
 	// Notificar al usuario si es master
 	initialResponse := Message{
@@ -112,28 +119,36 @@ func handleWebSocket(c *gin.Context) {
 			IsMaster: user.IsMaster,
 		},
 	}
-	if err := conn.WriteJSON(initialResponse); err != nil {
-		log.Println("Error al enviar initial_role:", err)
-	} else {
-		log.Printf("Enviado initial_role a %s: IsMaster=%v", user.Name, user.IsMaster)
+	log.Printf("Enviando mensaje initial_role a %s: %+v", user.Name, initialResponse)
+	if err := user.Conn.WriteJSON(initialResponse); err != nil {
+		log.Printf("Error al enviar initial_role a %s: %v", user.Name, err)
 	}
 
 	// Enviar el estado actual de la reunión al usuario
 	sendMeetingState(user)
 
-	// Enviar la lista actualizada de usuarios a todos
+	// Enviar la lista actualizada de usuarios al usuario
+	sendUserList(user)
+
+	// Difundir la lista actualizada de usuarios a todos
 	broadcastUserList()
 
 	// Escuchar mensajes del usuario
+	go listenToUser(user)
+}
+
+func listenToUser(user *User) {
+	defer func() {
+		user.Conn.Close()
+		removeUser(user.Conn)
+	}()
+
 	for {
-		_, msg, err := conn.ReadMessage()
+		_, msg, err := user.Conn.ReadMessage()
 		if err != nil {
 			log.Println("Usuario desconectado:", user.Name)
-			removeUser(conn)
 			break
 		}
-
-		log.Printf("Mensaje recibido de %s: %s", user.Name, msg)
 
 		var wsMsg Message
 		if err := json.Unmarshal(msg, &wsMsg); err != nil {
@@ -158,13 +173,37 @@ func sendMeetingState(user *User) {
 		Type:    "meeting_state",
 		Payload: state,
 	}
-	user.Conn.WriteJSON(msg)
+	if err := user.Conn.WriteJSON(msg); err != nil {
+		log.Printf("Error al enviar meeting_state a %s: %v", user.Name, err)
+	} else {
+		log.Printf("Enviado meeting_state a %s", user.Name)
+	}
+}
+
+func sendUserList(user *User) {
+	var userList []string
+
+	// Bloquear el mutex y recopilar la lista de usuarios
+	usersMutex.Lock()
+	for _, u := range users {
+		userList = append(userList, u.Name)
+	}
+	usersMutex.Unlock()
+
+	// Enviar el mensaje fuera del bloqueo
+	msg := Message{
+		Type:    "user_list",
+		Payload: userList,
+	}
+	if err := user.Conn.WriteJSON(msg); err != nil {
+		log.Printf("Error al enviar user_list a %s: %v", user.Name, err)
+	} else {
+		log.Printf("Enviado user_list a %s", user.Name)
+	}
 }
 
 // Función para difundir el estado actual de la reunión a todos los usuarios
 func broadcastMeetingState() {
-	usersMutex.Lock()
-	defer usersMutex.Unlock()
 	state := struct {
 		MeetingStarted bool `json:"meetingStarted"`
 		SemaphoreGreen bool `json:"semaphoreGreen"`
@@ -176,166 +215,137 @@ func broadcastMeetingState() {
 		Type:    "meeting_state",
 		Payload: state,
 	}
-	for _, user := range users {
-		user.Conn.WriteJSON(msg)
-	}
+	broadcast(msg)
 }
 
 // Función para manejar los mensajes entrantes
 func handleMessage(user *User, msg Message) {
-	log.Printf("handleMessage: Usuario=%s, Tipo=%s, Payload=%v", user.Name, msg.Type, msg.Payload)
-
 	switch msg.Type {
 	case "start_meeting":
-		if user.IsMaster {
-			log.Printf("El master %s ha iniciado la reunión.", user.Name)
+		if user.IsMaster && !meetingStarted {
 			startMeeting()
-		} else {
-			log.Printf("El usuario %s intentó iniciar la reunión sin ser master.", user.Name)
 		}
-	case "toggle_semaphore":
-		if user.IsMaster {
-			log.Printf("El master %s ha alternado el semáforo.", user.Name)
-			toggleSemaphore()
-		} else {
-			log.Printf("El usuario %s intentó alternar el semáforo sin ser master.", user.Name)
+	case "start_semaphore":
+		if user.IsMaster && meetingStarted {
+			startSemaphore()
 		}
 	case "press_button":
-		if semaphoreGreen && !meetingStarted {
-			usersMutex.Lock()
-			// Evitar agregar al usuario más de una vez
-			if !userInTurnOrder(user) {
-				turnOrder = append(turnOrder, user)
-				broadcastTurnOrder()
-				log.Printf("Usuario %s ha presionado el botón y ha sido agregado al orden de turnos.", user.Name)
-			} else {
-				log.Printf("Usuario %s ya estaba en el orden de turnos.", user.Name)
-			}
-			usersMutex.Unlock()
-		} else {
-			log.Printf("Usuario %s intentó presionar el botón cuando el semáforo no estaba en verde o la reunión ya había comenzado.", user.Name)
-		}
-	case "start_turn":
-		if user == currentSpeaker {
-			user.Speaking = true
-			speakingStartTime = time.Now()
-			broadcast(Message{
-				Type:    "turn_started",
-				Payload: user.Name,
-			})
-			log.Printf("Usuario %s ha comenzado su turno.", user.Name)
+		if semaphoreGreen && !user.HasSpoken {
+			user.PressedAt = time.Now()
+			addToTurnOrder(user)
 		}
 	case "end_turn":
-		if user == currentSpeaker && user.Speaking {
-			user.Speaking = false
-			user.TurnTime = time.Since(speakingStartTime)
-			log.Printf("Usuario %s ha terminado su turno. Tiempo utilizado: %v", user.Name, user.TurnTime)
-			advanceTurn()
+		if user == currentSpeaker {
+			endTurn()
+		}
+	case "force_end_turn":
+		if user.IsMaster {
+			endTurn()
 		}
 	case "skip_turn":
 		if user.IsMaster {
-			log.Printf("El master %s ha saltado el turno.", user.Name)
-			advanceTurn()
-		} else {
-			log.Printf("El usuario %s intentó saltar el turno sin ser master.", user.Name)
-		}
-	case "reorder_turn_order":
-		if user.IsMaster {
-			log.Printf("El master %s ha reordenado el orden de turnos.", user.Name)
-			var newOrder []string
-			if names, ok := msg.Payload.([]interface{}); ok {
-				for _, name := range names {
-					if nameStr, ok := name.(string); ok {
-						newOrder = append(newOrder, nameStr)
-					}
-				}
-				reorderTurnOrder(newOrder)
-			}
-		} else {
-			log.Printf("El usuario %s intentó reordenar el orden de turnos sin ser master.", user.Name)
+			endTurn()
 		}
 	case "reset_meeting":
 		if user.IsMaster {
-			log.Printf("El master %s ha reiniciado la reunión.", user.Name)
 			resetMeetingState()
-		} else {
-			log.Printf("El usuario %s intentó reiniciar la reunión sin ser master.", user.Name)
+		}
+	case "add_virtual_user":
+		if user.IsMaster {
+			addVirtualUser()
 		}
 	default:
-		log.Printf("Tipo de mensaje desconocido recibido de %s: %s", user.Name, msg.Type)
+		log.Printf("Mensaje desconocido de %s: %s", user.Name, msg.Type)
 	}
 }
 
-// Función para verificar si un usuario ya está en la lista de turnos
-func userInTurnOrder(user *User) bool {
-	for _, u := range turnOrder {
-		if u == user {
-			return true
-		}
-	}
-	return false
-}
-
+// Función para iniciar la reunión
 func startMeeting() {
 	meetingMutex.Lock()
 	defer meetingMutex.Unlock()
 	meetingStarted = true
-	log.Println("La reunión ha comenzado.")
 	broadcastMeetingState()
-	advanceTurn()
 }
 
-func toggleSemaphore() {
+// Función para iniciar el semáforo con tiempo aleatorio
+func startSemaphore() {
 	meetingMutex.Lock()
 	defer meetingMutex.Unlock()
-	semaphoreGreen = !semaphoreGreen
-	log.Printf("Semáforo alternado: %v", semaphoreGreen)
+
+	if semaphoreGreen {
+		return
+	}
+
+	// Cambiar el semáforo a rojo y notificar a todos
+	semaphoreGreen = false
 	broadcastMeetingState()
+
+	// Esperar un tiempo aleatorio entre 2 y 5 segundos
+	randomTime := time.Duration(rand.Intn(3)+2) * time.Second
+	time.AfterFunc(randomTime, func() {
+		meetingMutex.Lock()
+		defer meetingMutex.Unlock()
+		// Cambiar el semáforo a verde y notificar a todos
+		semaphoreGreen = true
+		broadcastMeetingState()
+	})
+}
+
+// Función para agregar un usuario al orden de turnos
+func addToTurnOrder(user *User) {
+	meetingMutex.Lock()
+	defer meetingMutex.Unlock()
+
+	// Verificar si el usuario ya está en el orden de turnos
+	for _, u := range turnOrder {
+		if u == user {
+			return
+		}
+	}
+
+	turnOrder = append(turnOrder, user)
+	broadcastTurnOrder()
+
+	// Si nadie más ha presionado el botón, iniciar el turno
+	if currentSpeaker == nil {
+		advanceTurn()
+	}
 }
 
 // Función para avanzar al siguiente turno
 func advanceTurn() {
-	meetingMutex.Lock()
-	defer meetingMutex.Unlock()
-
-	if len(turnOrder) > 0 {
-		currentSpeaker = turnOrder[0]
-		turnOrder = turnOrder[1:]
-		broadcastTurnOrder()
-		broadcast(Message{
-			Type:    "next_turn",
-			Payload: currentSpeaker.Name,
-		})
-		// Enviar notificación TTS al frontend
-		broadcast(Message{
-			Type:    "tts",
-			Payload: currentSpeaker.Name,
-		})
-	} else {
-		currentSpeaker = nil
-		// Finalizar reunión
-		broadcast(Message{
-			Type:    "meeting_finished",
-			Payload: nil,
-		})
+	if len(turnOrder) == 0 {
+		// Si no hay más usuarios en la lista, agregar un usuario virtual
+		addVirtualUser()
 	}
+
+	currentSpeaker = turnOrder[0]
+	currentSpeaker.HasSpoken = true
+	turnOrder = turnOrder[1:]
+	broadcastTurnOrder()
+
+	// Notificar a todos quién es el siguiente orador
+	msg := Message{
+		Type:    "next_speaker",
+		Payload: currentSpeaker.Name,
+	}
+	broadcast(msg)
 }
 
-// Función para reordenar los turnos
-func reorderTurnOrder(newOrder []string) {
-	usersMutex.Lock()
-	defer usersMutex.Unlock()
+// Función para finalizar el turno actual
+func endTurn() {
+	currentSpeaker = nil
+	advanceTurn()
+}
 
-	var newTurnOrder []*User
-	for _, name := range newOrder {
-		for _, user := range turnOrder {
-			if user.Name == name {
-				newTurnOrder = append(newTurnOrder, user)
-				break
-			}
-		}
+// Función para agregar un usuario virtual
+func addVirtualUser() {
+	virtualUser := &User{
+		Name:      "Usuario Virtual",
+		IsMaster:  false,
+		HasSpoken: true,
 	}
-	turnOrder = newTurnOrder
+	turnOrder = append(turnOrder, virtualUser)
 	broadcastTurnOrder()
 }
 
@@ -348,36 +358,41 @@ func resetMeetingState() {
 	semaphoreGreen = false
 	turnOrder = []*User{}
 	currentSpeaker = nil
-	speakingStartTime = time.Time{}
 
 	broadcast(Message{
 		Type:    "meeting_reset",
 		Payload: nil,
 	})
+	broadcastMeetingState()
+	broadcastTurnOrder()
 }
 
 // Función para eliminar un usuario
 func removeUser(conn *websocket.Conn) {
+	var userName string
+	var needToBroadcast bool
+
 	usersMutex.Lock()
-	defer usersMutex.Unlock()
-	user := users[conn]
-	delete(users, conn)
-	if user == master {
-		master = nil
-		// Asignar nuevo master si hay usuarios conectados
-		if len(users) > 0 {
-			for _, u := range users {
-				master = u
-				master.IsMaster = true
-				// Notificar al nuevo master
-				master.Conn.WriteJSON(Message{
-					Type:    "you_are_master",
-					Payload: nil,
-				})
-				break
+	user, exists := users[conn]
+
+	if exists {
+		if user == master {
+			master = nil
+			// Asignar nuevo master si hay usuarios conectados
+			if len(users) > 0 {
+				for _, u := range users {
+					master = u
+					u.IsMaster = true
+					break
+				}
 			}
 		}
+		userName = user.Name
+		delete(users, conn)
+		needToBroadcast = true
 	}
+	usersMutex.Unlock()
+
 	// Remover de turnOrder si está
 	for i, u := range turnOrder {
 		if u == user {
@@ -386,45 +401,64 @@ func removeUser(conn *websocket.Conn) {
 		}
 	}
 	// Enviar la lista actualizada de usuarios
-	broadcastUserList()
-	broadcastTurnOrder()
+	if needToBroadcast {
+		log.Printf("Usuario %s eliminado", userName)
+		broadcastUserList()
+		broadcastTurnOrder()
+	}
+
 }
 
 // Función para difundir mensajes a todos los usuarios
 func broadcast(msg Message) {
+	var userConns []*websocket.Conn
+
+	// Bloquear el mutex y copiar las conexiones
 	usersMutex.Lock()
-	defer usersMutex.Unlock()
-	for conn := range users {
-		conn.WriteJSON(msg)
+	for _, user := range users {
+		userConns = append(userConns, user.Conn)
+	}
+	usersMutex.Unlock()
+
+	// Enviar el mensaje a cada conexión fuera del bloqueo
+	for _, conn := range userConns {
+		err := conn.WriteJSON(msg)
+		if err != nil {
+			log.Printf("Error al enviar mensaje a un usuario: %v", err)
+			// Opcional: manejar la desconexión del usuario
+		}
 	}
 }
 
 // Función para difundir el orden de turnos
 func broadcastTurnOrder() {
-	usersMutex.Lock()
-	defer usersMutex.Unlock()
 	var order []string
 	for _, user := range turnOrder {
 		order = append(order, user.Name)
 	}
-	broadcast(Message{
+	msg := Message{
 		Type:    "turn_order",
 		Payload: order,
-	})
+	}
+	broadcast(msg)
 }
 
 // Función para difundir la lista de usuarios conectados
 func broadcastUserList() {
-	usersMutex.Lock()
-	defer usersMutex.Unlock()
 	var userList []string
+
+	// Bloquear el mutex y recopilar la lista de usuarios
+	usersMutex.Lock()
 	for _, user := range users {
 		userList = append(userList, user.Name)
 	}
-	broadcast(Message{
+	usersMutex.Unlock()
+
+	msg := Message{
 		Type:    "user_list",
 		Payload: userList,
-	})
+	}
+	broadcast(msg)
 }
 
 // Handler para restablecer la reunión vía HTTP
