@@ -73,31 +73,19 @@
           <div id="semaphore" class="${
             currentState.semaphoreGreen ? "green" : ""
           }"></div>
-          ${
-            !isMaster
-              ? '<button id="pressButton" disabled>Presiona el botón</button>'
-              : ""
-          }
+          <button id="pressButton" disabled>Presiona el botón</button>
           <div id="connectedUsers"></div>
           <div id="turnOrder"></div>
           ${isMaster ? renderMasterControls() : ""}
           <div id="currentSpeaker"></div>
-          ${
-            !isMaster
-              ? '<button id="endTurnButton" class="hidden">Terminar Turno</button>'
-              : ""
-          }
+          <button id="endTurnButton" class="hidden">Terminar Turno</button>
       `;
 
-    if (!isMaster) {
-      document
-        .getElementById("pressButton")
-        .addEventListener("click", pressButton);
+    document
+      .getElementById("pressButton")
+      .addEventListener("click", pressButton);
 
-      document
-        .getElementById("endTurnButton")
-        .addEventListener("click", endTurn);
-    }
+    document.getElementById("endTurnButton").addEventListener("click", endTurn);
 
     if (isMaster) {
       document
@@ -170,6 +158,12 @@
         startNextTurn(msg.payload);
         break;
 
+      case "meeting_end":
+        console.log("Mensaje meeting_end recibido:", msg);
+        alert(msg.payload); // Mostrar alerta al usuario
+        resetInterface(); // Función para reiniciar o limpiar la interfaz
+        break;
+
       case "meeting_reset":
         alert("La reunión ha sido reiniciada por el master.");
         location.reload();
@@ -178,6 +172,18 @@
       default:
         console.log("Tipo de mensaje desconocido:", msg.type);
     }
+  }
+
+  function resetInterface() {
+    app.innerHTML = `
+          <h1>Reunión Finalizada</h1>
+          <p>La reunión ha finalizado. Puedes unirte a otra reunión si lo deseas en 3 segundos.</p>
+      `;
+
+    // Delay de 3 segundos hacer reload
+    setTimeout(() => {
+      location.reload();
+    }, 3000);
   }
 
   function updateRoomState() {
@@ -191,14 +197,12 @@
     const semaphoreDiv = document.getElementById("semaphore");
     if (currentState.semaphoreGreen) {
       semaphoreDiv.classList.add("green");
-      if (!hasPressedButton && !isMaster) {
+      if (!hasPressedButton) {
         document.getElementById("pressButton").disabled = false;
       }
     } else {
       semaphoreDiv.classList.remove("green");
-      if (!isMaster) {
-        document.getElementById("pressButton").disabled = true;
-      }
+      document.getElementById("pressButton").disabled = true;
     }
   }
 

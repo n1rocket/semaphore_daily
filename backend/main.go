@@ -223,17 +223,14 @@ func handleMessage(user *User, msg Message) {
 	switch msg.Type {
 	case "start_meeting":
 		if user.IsMaster && !meetingStarted {
-			startMeeting()
+			startMeeting(user)
 		}
 	case "start_semaphore":
 		if user.IsMaster && meetingStarted {
 			startSemaphore()
 		}
 	case "press_button":
-		if semaphoreGreen && !user.HasSpoken {
-			user.PressedAt = time.Now()
-			addToTurnOrder(user)
-		}
+		addToTurnOrder(user)
 	case "end_turn":
 		if user == currentSpeaker {
 			endTurn()
@@ -260,11 +257,27 @@ func handleMessage(user *User, msg Message) {
 }
 
 // Función para iniciar la reunión
-func startMeeting() {
+func startMeeting(user *User) {
 	meetingMutex.Lock()
 	defer meetingMutex.Unlock()
+
+	if meetingStarted {
+		log.Println("La reunión ya ha sido iniciada.")
+		return
+	}
+
 	meetingStarted = true
+	log.Println("La reunión ha sido iniciada.")
+
+	// // Añadir todos los usuarios al orden de turnos
+	// usersMutex.Lock()
+	// for _, u := range users {
+	// 	addToTurnOrder(u)
+	// }
+	// usersMutex.Unlock()
+
 	broadcastMeetingState()
+	//advanceTurn()
 }
 
 // Función para iniciar el semáforo con tiempo aleatorio
@@ -299,24 +312,31 @@ func addToTurnOrder(user *User) {
 	// Verificar si el usuario ya está en el orden de turnos
 	for _, u := range turnOrder {
 		if u == user {
+			log.Printf("El usuario %s ya está en el orden de turnos.", user.Name)
 			return
 		}
 	}
 
 	turnOrder = append(turnOrder, user)
+	log.Printf("Añadido al orden de turnos: %s", user.Name)
 	broadcastTurnOrder()
-
-	// Si nadie más ha presionado el botón, iniciar el turno
-	if currentSpeaker == nil {
-		advanceTurn()
-	}
 }
 
 // Función para avanzar al siguiente turno
 func advanceTurn() {
+	meetingMutex.Lock()
+	defer meetingMutex.Unlock()
+
 	if len(turnOrder) == 0 {
-		// Si no hay más usuarios en la lista, agregar un usuario virtual
-		addVirtualUser()
+		// Enviar mensaje de fin de reunión
+		msg := Message{
+			Type:    "meeting_end",
+			Payload: "La reunión ha finalizado. ¡Gracias por participar!",
+		}
+		broadcast(msg)
+		log.Println("La reunión ha concluido. Se ha notificado a todos los usuarios.")
+		resetMeetingState()
+		return
 	}
 
 	currentSpeaker = turnOrder[0]
@@ -330,6 +350,7 @@ func advanceTurn() {
 		Payload: currentSpeaker.Name,
 	}
 	broadcast(msg)
+	log.Printf("Es el turno de: %s", currentSpeaker.Name)
 }
 
 // Función para finalizar el turno actual
@@ -352,12 +373,20 @@ func addVirtualUser() {
 // Función para restablecer el estado de la reunión
 func resetMeetingState() {
 	meetingMutex.Lock()
-	defer meetingMutex.Unlock()
 
+	// Disconnect connections
+	for con := range users {
+		con.Close()
+		delete(users, con)
+	}
+
+	master = nil
 	meetingStarted = false
 	semaphoreGreen = false
 	turnOrder = []*User{}
 	currentSpeaker = nil
+
+	meetingMutex.Unlock()
 
 	broadcast(Message{
 		Type:    "meeting_reset",
