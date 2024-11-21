@@ -1,91 +1,169 @@
+# Daily Meeting Manager - Gestor de Reuniones Diarias
 
-# Daily Manager Go - Ruleta de Turnos
+Este proyecto es una aplicación web diseñada para facilitar la gestión de reuniones diarias. Permite coordinar el turno de participación de los usuarios, manejar el flujo de la reunión y proporcionar herramientas interactivas para mejorar la colaboración en equipo.
 
-Este proyecto es una aplicación de escritorio en Go utilizando el framework Fyne, que implementa una ruleta de turnos para una serie de participantes. La aplicación permite seleccionar aleatoriamente un turno, mostrar el turno actual y mantener un registro del tiempo utilizado por cada participante.
+## Descripción
+
+La aplicación está construida utilizando **Go** en el backend con el framework **Gin** y en el frontend emplea **HTML, CSS y JavaScript**. Para la comunicación en tiempo real entre el servidor y los clientes se utiliza **WebSockets**, lo que permite actualizar el estado de la reunión y las interacciones de los usuarios al instante.
+
+## Características Principales
+
+### Gestión de Usuarios
+
+- Los participantes pueden unirse a la reunión ingresando su nombre.
+- El primer usuario en conectarse es asignado como **Master**, teniendo controles adicionales para gestionar la reunión.
+
+### Control de Turnos
+
+- Implementa una mecánica para determinar el orden de intervención de los participantes mediante un **semáforo virtual** y un **botón de participación**.
+- Los usuarios pueden presionar el botón cuando el semáforo está en verde para unirse a la lista de turnos.
+
+### Semáforo Virtual
+
+- El semáforo cambia de rojo a verde después de un tiempo aleatorio, indicando a los participantes cuándo pueden presionar el botón.
+- Añade una dinámica interactiva y aleatoria para iniciar las intervenciones.
+
+### Interfaz Intuitiva
+
+- Diseño claro y sencillo que muestra la lista de usuarios conectados, el orden de turnos y el orador actual.
+- Botones y controles fáciles de usar para interactuar con la aplicación.
+
+### Funciones del Master
+
+- Iniciar y reiniciar la reunión.
+- Iniciar el semáforo.
+- Saltar turnos.
+- Añadir usuarios virtuales para pruebas o simulaciones.
 
 ## Requisitos
 
-- Go 1.16 o superior
-- Bibliotecas de terceros:
-  - `fyne.io/fyne/v2`
-  - `github.com/hegedustibor/htgo-tts`
-  - `image/color`
-  - `sync`
-  - `math/rand`
-  - `os/exec`
-- `mplayer` para la reproducción de audio
+### Backend
+
+- **Go 1.16** o superior.
+- Dependencias:
+  - `github.com/gin-gonic/gin`
+  - `github.com/gorilla/websocket`
+
+### Frontend
+
+- Navegador web moderno y actualizado.
+- Conexión a Internet para cargar librerías externas como **SortableJS**.
 
 ## Instalación
 
-1. Clona este repositorio:
+1. **Clonar el repositorio:**
+
    ```bash
-   git clone https://github.com/facephi/daily-manager-go.git
-   cd ruleta-de-turnos
+   git clone https://github.com/usuario/daily-meeting-manager.git
+   cd daily-meeting-manager
    ```
 
-2. Instala las dependencias:
+2. **Instalar las dependencias de Go:**
+
    ```bash
    go mod tidy
    ```
 
-3. Instala `mplayer` utilizando `brew`:
-   ```bash
-   brew install mplayer
-   ```
+3. **Ejecutar la aplicación:**
 
-4. Ejecuta la aplicación:
    ```bash
    go run main.go
    ```
 
+4. La aplicación estará disponible en [http://localhost:8080](http://localhost:8080).
+
 ## Uso
 
-Al ejecutar la aplicación, se abrirá una ventana con la lista de turnos y botones para iniciar y pausar la ruleta.
+### Acceder a la Aplicación
+
+- Abre un navegador web y navega a [http://localhost:8080](http://localhost:8080).
+
+### Unirse a la Reunión
+
+1. Ingresa tu nombre en el campo proporcionado y haz clic en **"Unirse"**.
+2. Si eres el primer usuario en unirte, serás el **Master** de la reunión.
 
 ### Interfaz de Usuario
 
-- **Lista de Turnos:** Muestra todos los turnos con su estado (completado, seleccionado o pendiente).
-- **Botón Girar Ruleta:** Selecciona aleatoriamente un turno disponible.
-- **Botón Pausar:** Pausa o reanuda el tiempo del turno actual.
+- **Semáforo:**
+  - Indica cuándo los participantes pueden presionar el botón para unirse al turno.
+  - Cambia de rojo a verde después de un tiempo aleatorio.
+- **Botón "Presiona el botón":**
+  - Disponible cuando el semáforo está en verde.
+  - Al presionarlo, te unes a la lista de turnos.
+- **Lista de Usuarios Conectados:**
+  - Muestra todos los participantes actualmente en la reunión.
+- **Orden de Turnos:**
+  - Muestra el orden en el que los participantes hablarán.
+- **Orador Actual:**
+  - Indica quién está hablando en este momento.
 
-### Funcionalidades
+### Funciones del Master
 
-- **Selección de Turno:** La ruleta selecciona un turno de manera aleatoria (excluyendo el turno de introducción de Joseca después de la primera vez).
-- **Tiempo de Turno:** Registra el tiempo que cada participante utiliza durante su turno.
-- **Pausar/Reanudar:** Permite pausar y reanudar el conteo del tiempo de un turno.
-- **Audio y Texto a Voz:** Utiliza la biblioteca `htgo-tts` para reproducir audios y anunciar el turno seleccionado.
+- **Iniciar Reunión:** Comienza la reunión y permite que otros usuarios se unan.
+- **Iniciar Semáforo:** Activa el semáforo para que los participantes puedan presionar el botón.
+- **Saltar Turno:** Omite al orador actual y pasa al siguiente en la lista.
+- **Añadir Usuario Virtual:** Agrega un participante virtual para pruebas o demostraciones.
+- **Reiniciar Reunión:** Restablece el estado de la reunión y desconecta a todos los usuarios.
 
-## Código Principal
+## Arquitectura del Proyecto
 
-El archivo principal `main.go` incluye toda la lógica de la aplicación. Aquí hay una breve descripción de las funciones clave:
+### Backend (`main.go`)
 
-- `initializeTurnos()`: Inicializa la lista de turnos con los participantes.
-- `initializeUI(w fyne.Window)`: Configura la interfaz de usuario.
-- `togglePause()`: Pausa o reanuda el tiempo del turno actual.
-- `selectJoseca()`: Selecciona el turno de introducción de Joseca y reproduce un mensaje de audio.
-- `selectRandomTurno()`: Selecciona aleatoriamente un turno disponible.
-- `animateSelection(finalIndex int, availableTurnos []int)`: Anima la selección de un turno.
-- `completeCurrentTurno()`: Marca el turno actual como completado.
-- `updateCurrentTurnoTime()`: Actualiza el tiempo del turno actual.
-- `sortTurnosByTime()`: Ordena los turnos por tiempo.
-- `playAudio(filePath string)`: Reproduce un archivo de audio utilizando `mplayer`.
+- **Manejo de Usuarios:**
+  - Conecta y desconecta usuarios utilizando WebSockets.
+  - Asigna roles y mantiene el estado de cada participante.
+- **Estado de la Reunión:**
+  - Controla el inicio y reinicio de la reunión.
+  - Gestiona el semáforo y el turno de los participantes.
+- **Comunicación en Tiempo Real:**
+  - Envía y recibe mensajes JSON a través de WebSockets para actualizar el estado de la aplicación en los clientes.
+
+### Frontend (`index.html`, `styles.css`, `script.js`)
+
+- **Interfaz de Usuario:**
+  - HTML estructurado para mostrar los componentes de la aplicación.
+  - CSS para estilizar y mejorar la experiencia visual.
+- **Interactividad:**
+  - JavaScript para manejar eventos, actualizar la interfaz y comunicarse con el servidor.
+  - Utilización de **SortableJS** para permitir la reorganización interactiva de elementos si es necesario.
+- **Comunicación con el Servidor:**
+  - Establece una conexión WebSocket para enviar acciones del usuario y recibir actualizaciones.
+
+## Exponer con NGROK al exterior
+
+```bash
+ngrok http http://localhost:8080
+```
 
 ## Contribuir
 
-Si deseas contribuir a este proyecto, por favor sigue los siguientes pasos:
+Si deseas contribuir al proyecto:
 
-1. Haz un fork del repositorio.
-2. Crea una nueva rama (`git checkout -b feature/nueva-funcionalidad`).
-3. Realiza tus cambios y haz commit (`git commit -am 'Añadir nueva funcionalidad'`).
-4. Sube los cambios a tu fork (`git push origin feature/nueva-funcionalidad`).
-5. Abre un Pull Request.
+1. Realiza un fork del repositorio.
+2. Crea una nueva rama para tu funcionalidad:
+
+   ```bash
+   git checkout -b feature/nueva-funcionalidad
+   ```
+
+3. Realiza tus cambios y realiza commits descriptivos.
+4. Sube tus cambios al repositorio remoto:
+
+   ```bash
+   git push origin feature/nueva-funcionalidad
+   ```
+
+5. Abre un **Pull Request** explicando tus modificaciones.
 
 ## Licencia
 
-Este proyecto está licenciado bajo la [MIT License](LICENSE).
+Este proyecto está bajo la Licencia MIT. Consulta el archivo `LICENSE` para más detalles.
 
 ## Autor
 
-- [SDK Mobile Team](https://github.com/tu_usuario)
+**Equipo de Desarrollo**
 
-¡Gracias por usar la Ruleta de Turnos!
+---
+
+¡Gracias por utilizar **Daily Meeting Manager**!
