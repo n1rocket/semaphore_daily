@@ -42,6 +42,8 @@ var (
 	turnOrder      = []*User{}
 	currentSpeaker *User
 	meetingMutex   = &sync.Mutex{}
+	// Mapa para rastrear quién ha presionado el botón
+	buttonPressed = make(map[*User]bool)
 )
 
 // Configuración del upgrader para WebSocket
@@ -56,6 +58,8 @@ func main() {
 
 	router.GET("/ws", handleWebSocket)
 	router.POST("/reset", resetMeeting)
+	router.StaticFile("/", "./public/index.html")
+	router.Static("/static", "./public")
 	router.Run(":8080")
 }
 
@@ -220,12 +224,16 @@ func broadcastMeetingState() {
 
 // Función para manejar los mensajes entrantes
 func handleMessage(user *User, msg Message) {
+	log.Printf("Mensaje de %s: %s", user.Name, msg.Type)
 	switch msg.Type {
 	case "start_meeting":
 		if user.IsMaster && !meetingStarted {
 			startMeeting(user)
 		}
 	case "start_semaphore":
+		log.Printf("Mensaje de %s: %s", user.Name, msg.Type)
+		log.Print("meetingStarted: ", meetingStarted)
+		log.Print("user.IsMaster: ", user.IsMaster)
 		if user.IsMaster && meetingStarted {
 			startSemaphore()
 		}
@@ -269,12 +277,7 @@ func startMeeting(user *User) {
 	meetingStarted = true
 	log.Println("La reunión ha sido iniciada.")
 
-	// // Añadir todos los usuarios al orden de turnos
-	// usersMutex.Lock()
-	// for _, u := range users {
-	// 	addToTurnOrder(u)
-	// }
-	// usersMutex.Unlock()
+	buttonPressed = make(map[*User]bool)
 
 	broadcastMeetingState()
 	//advanceTurn()
@@ -307,12 +310,12 @@ func startSemaphore() {
 // Función para agregar un usuario al orden de turnos
 func addToTurnOrder(user *User) {
 	meetingMutex.Lock()
-	defer meetingMutex.Unlock()
 
 	// Verificar si el usuario ya está en el orden de turnos
 	for _, u := range turnOrder {
 		if u == user {
 			log.Printf("El usuario %s ya está en el orden de turnos.", user.Name)
+			meetingMutex.Unlock()
 			return
 		}
 	}
@@ -320,14 +323,31 @@ func addToTurnOrder(user *User) {
 	turnOrder = append(turnOrder, user)
 	log.Printf("Añadido al orden de turnos: %s", user.Name)
 	broadcastTurnOrder()
+
+	// Marcar que el usuario ha presionado el botón
+	buttonPressed[user] = true
+
+	// Verificar si todos los usuarios han presionado el botón
+	allPressed := len(buttonPressed) == len(users)
+	meetingMutex.Unlock() // Liberar el mutex antes de llamar a advanceTurn
+
+	if allPressed {
+		log.Println("Todos los usuarios han presionado el botón. Avanzando al siguiente turno.")
+		advanceTurn()
+		// Reiniciar el mapa para la siguiente ronda
+		meetingMutex.Lock()
+		buttonPressed = make(map[*User]bool)
+		meetingMutex.Unlock()
+	}
 }
 
 // Función para avanzar al siguiente turno
 func advanceTurn() {
+	log.Print("advanceTurn")
 	meetingMutex.Lock()
-	defer meetingMutex.Unlock()
 
 	if len(turnOrder) == 0 {
+		log.Println("No hay más usuarios en el orden de turnos.")
 		// Enviar mensaje de fin de reunión
 		msg := Message{
 			Type:    "meeting_end",
@@ -336,8 +356,11 @@ func advanceTurn() {
 		broadcast(msg)
 		log.Println("La reunión ha concluido. Se ha notificado a todos los usuarios.")
 		resetMeetingState()
+		meetingMutex.Unlock()
 		return
 	}
+
+	log.Print("advanceTurn 2")
 
 	currentSpeaker = turnOrder[0]
 	currentSpeaker.HasSpoken = true
@@ -351,10 +374,20 @@ func advanceTurn() {
 	}
 	broadcast(msg)
 	log.Printf("Es el turno de: %s", currentSpeaker.Name)
+	meetingMutex.Unlock()
 }
 
 // Función para finalizar el turno actual
 func endTurn() {
+	meetingMutex.Lock()
+	defer meetingMutex.Unlock()
+
+	if currentSpeaker == nil {
+		log.Println("No hay un orador actual para finalizar.")
+		return
+	}
+
+	log.Printf("Turno finalizado de: %s", currentSpeaker.Name)
 	currentSpeaker = nil
 	advanceTurn()
 }
@@ -373,9 +406,18 @@ func addVirtualUser() {
 // Función para restablecer el estado de la reunión
 func resetMeetingState() {
 	meetingMutex.Lock()
+	usersMutex.Lock()
+	defer meetingMutex.Unlock()
+	defer usersMutex.Unlock()
 
-	// Disconnect connections
+	// Cerrar todas las conexiones WebSocket y limpiar el mapa de usuarios
 	for con := range users {
+		if err := con.WriteJSON(Message{
+			Type:    "meeting_reset",
+			Payload: nil,
+		}); err != nil {
+			log.Printf("Error al enviar mensaje de reset a %s: %v", users[con].Name, err)
+		}
 		con.Close()
 		delete(users, con)
 	}
@@ -385,15 +427,9 @@ func resetMeetingState() {
 	semaphoreGreen = false
 	turnOrder = []*User{}
 	currentSpeaker = nil
+	buttonPressed = make(map[*User]bool)
 
-	meetingMutex.Unlock()
-
-	broadcast(Message{
-		Type:    "meeting_reset",
-		Payload: nil,
-	})
-	broadcastMeetingState()
-	broadcastTurnOrder()
+	log.Println("Estado de la reunión ha sido reiniciado.")
 }
 
 // Función para eliminar un usuario
@@ -419,6 +455,10 @@ func removeUser(conn *websocket.Conn) {
 		userName = user.Name
 		delete(users, conn)
 		needToBroadcast = true
+		// Eliminar del mapa de botones presionados si estaba presente
+		meetingMutex.Lock()
+		delete(buttonPressed, user)
+		meetingMutex.Unlock()
 	}
 	usersMutex.Unlock()
 
@@ -440,27 +480,25 @@ func removeUser(conn *websocket.Conn) {
 
 // Función para difundir mensajes a todos los usuarios
 func broadcast(msg Message) {
-	var userConns []*websocket.Conn
-
-	// Bloquear el mutex y copiar las conexiones
 	usersMutex.Lock()
+	userConns := make([]*websocket.Conn, 0, len(users))
 	for _, user := range users {
 		userConns = append(userConns, user.Conn)
 	}
 	usersMutex.Unlock()
 
-	// Enviar el mensaje a cada conexión fuera del bloqueo
 	for _, conn := range userConns {
-		err := conn.WriteJSON(msg)
-		if err != nil {
+		if err := conn.WriteJSON(msg); err != nil {
 			log.Printf("Error al enviar mensaje a un usuario: %v", err)
 			// Opcional: manejar la desconexión del usuario
+			removeUser(conn)
 		}
 	}
 }
 
 // Función para difundir el orden de turnos
 func broadcastTurnOrder() {
+	log.Print("broadcastTurnOrder")
 	var order []string
 	for _, user := range turnOrder {
 		order = append(order, user.Name)
