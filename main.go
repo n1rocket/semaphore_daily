@@ -253,7 +253,9 @@ func handleMessage(user *User, msg Message) {
 		}
 	case "reset_meeting":
 		if user.IsMaster {
+			meetingMutex.Lock()
 			resetMeetingState()
+			meetingMutex.Unlock()
 		}
 	case "add_virtual_user":
 		if user.IsMaster {
@@ -403,9 +405,7 @@ func addVirtualUser() {
 
 // Función para restablecer el estado de la reunión
 func resetMeetingState() {
-	meetingMutex.Lock()
 	usersMutex.Lock()
-	defer meetingMutex.Unlock()
 	defer usersMutex.Unlock()
 
 	// Cerrar todas las conexiones WebSocket y limpiar el mapa de usuarios
@@ -528,6 +528,8 @@ func broadcastUserList() {
 
 // Handler para restablecer la reunión vía HTTP
 func resetMeeting(c *gin.Context) {
+	meetingMutex.Lock()
+	defer meetingMutex.Unlock()
 	resetMeetingState()
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Reunión restablecida",
