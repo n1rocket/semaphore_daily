@@ -1,6 +1,16 @@
 version: '3.9'
 
 services:
+  downloader:
+    image: curlimages/curl:latest
+    command: >
+      -o /templates/nginx.tmpl https://raw.githubusercontent.com/nginx-proxy/docker-gen/master/templates/nginx.tmpl
+    volumes:
+      - ./nginx/templates:/templates
+    entrypoint: [ "curl" ]
+    networks:
+      - web
+
   app:
     build:
       context: .
