@@ -5,9 +5,5 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.app.rule=Host(`n1rocket.com`)" # Ruta principal
-      - "traefik.http.services.app.loadbalancer.server.port=8080"
-    #ports:
-    #  - "80:8080"
+    ports:
+      - "80:8080"
