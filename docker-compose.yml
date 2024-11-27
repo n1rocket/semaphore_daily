@@ -26,3 +26,4 @@ services:
 networks:
   web:
     external: true
+    name: traefik_default
