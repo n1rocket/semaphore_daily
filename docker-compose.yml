@@ -6,13 +6,4 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8080:8080"
-    depends_on:
-      - static
-
-  static:
-    build:
-      context: .
-      dockerfile: Dockerfile.static
-    ports:
-      - "80:80"
+      - "10001:8080"
