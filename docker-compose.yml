@@ -6,4 +6,36 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "80:8080"
+      - "8080:8080" # Cambiamos para que el proxy use el puerto 80
+    networks:
+      - web
+
+  nginx-proxy:
+    image: jwilder/nginx-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+      - ./nginx/certs:/etc/nginx/certs
+    environment:
+      DEFAULT_HOST: n1rocket.com
+    depends_on:
+      - app
+    networks:
+      - web
+
+  letsencrypt:
+    image: jrcs/letsencrypt-nginx-proxy-companion
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./nginx/certs:/etc/nginx/certs
+    environment:
+      NGINX_PROXY_CONTAINER: nginx-proxy
+    depends_on:
+      - nginx-proxy
+    networks:
+      - web
+
+networks:
+  web:
