@@ -1,16 +1,6 @@
 version: '3.9'
 
 services:
-  downloader:
-    image: curlimages/curl:latest
-    command: >
-      -o /templates/nginx.tmpl https://raw.githubusercontent.com/nginx-proxy/docker-gen/master/templates/nginx.tmpl
-    volumes:
-      - ./nginx/templates:/templates
-    entrypoint: [ "curl" ]
-    networks:
-      - web
-
   app:
     build:
       context: .
@@ -40,10 +30,10 @@ services:
 
   docker-gen:
     image: nginxproxy/docker-gen
-    command: -notify-sighup nginx-proxy -watch /etc/docker-gen/templates/nginx.tmpl /etc/nginx/conf.d/default.conf
+    command: >
+      sh -c " curl -o /etc/docker-gen/templates/nginx.tmpl https://raw.githubusercontent.com/nginx-proxy/docker-gen/master/templates/nginx.tmpl && /usr/local/bin/docker-gen -notify-sighup nginx-proxy -watch /etc/docker-gen/templates/nginx.tmpl /etc/nginx/conf.d/default.conf"
     volumes:
       - /var/run/docker.sock:/tmp/docker.sock:ro
-      - ./nginx/templates:/etc/docker-gen/templates
       - ./nginx/conf.d:/etc/nginx/conf.d
     depends_on:
       - nginx-proxy
