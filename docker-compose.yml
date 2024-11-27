@@ -28,14 +28,14 @@ services:
       context: .
       dockerfile: Dockerfile
     labels:
-      - "traefik.enable=true" # Expone este contenedor a Traefik
+      - "traefik.enable=true"
       # Router para HTTPS
-      - "traefik.http.routers.app-secure.rule=Host(`n1rockethome.duckdns.org`)"
+      - "traefik.http.routers.app-secure.rule=Host(`n1rocket.com`)"
       - "traefik.http.routers.app-secure.entrypoints=websecure"
       - "traefik.http.routers.app-secure.tls=true"
       - "traefik.http.routers.app-secure.tls.certresolver=myresolver"
       # Router para HTTP que redirige a HTTPS
-      - "traefik.http.routers.app-insecure.rule=Host(`n1rockethome.duckdns.org`)"
+      - "traefik.http.routers.app-insecure.rule=Host(`n1rocket.com`)"
       - "traefik.http.routers.app-insecure.entrypoints=web"
       - "traefik.http.routers.app-insecure.middlewares=redirect-to-https"
       # Middleware para redirección
