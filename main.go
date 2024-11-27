@@ -333,7 +333,9 @@ func addToTurnOrder(user *User) {
 
 	if allPressed {
 		log.Println("Todos los usuarios han presionado el botón. Avanzando al siguiente turno.")
+		meetingMutex.Lock()
 		advanceTurn()
+		meetingMutex.Unlock()
 		// Reiniciar el mapa para la siguiente ronda
 		meetingMutex.Lock()
 		buttonPressed = make(map[*User]bool)
@@ -343,9 +345,6 @@ func addToTurnOrder(user *User) {
 
 // Función para avanzar al siguiente turno
 func advanceTurn() {
-	log.Print("advanceTurn")
-	meetingMutex.Lock()
-
 	if len(turnOrder) == 0 {
 		log.Println("No hay más usuarios en el orden de turnos.")
 		// Enviar mensaje de fin de reunión
@@ -356,7 +355,6 @@ func advanceTurn() {
 		broadcast(msg)
 		log.Println("La reunión ha concluido. Se ha notificado a todos los usuarios.")
 		resetMeetingState()
-		meetingMutex.Unlock()
 		return
 	}
 
@@ -374,22 +372,22 @@ func advanceTurn() {
 	}
 	broadcast(msg)
 	log.Printf("Es el turno de: %s", currentSpeaker.Name)
-	meetingMutex.Unlock()
 }
 
 // Función para finalizar el turno actual
 func endTurn() {
 	meetingMutex.Lock()
-	defer meetingMutex.Unlock()
 
 	if currentSpeaker == nil {
 		log.Println("No hay un orador actual para finalizar.")
+		meetingMutex.Unlock()
 		return
 	}
 
 	log.Printf("Turno finalizado de: %s", currentSpeaker.Name)
 	currentSpeaker = nil
 	advanceTurn()
+	meetingMutex.Unlock()
 }
 
 // Función para agregar un usuario virtual
