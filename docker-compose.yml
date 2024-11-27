@@ -1,28 +1,6 @@
 version: '3.9'
 
 services:
-  traefik:
-    image: traefik:v2.10
-    restart: always
-    command:
-      - "--api.insecure=true" # Habilita el dashboard de Traefik (considera asegurar esto en producción)
-      - "--providers.docker=true" # Habilita el proveedor de Docker
-      - "--providers.docker.exposedbydefault=false" # Exige que los contenedores se expongan explícitamente
-      - "--entrypoints.web.address=:80" # Entrypoint para HTTP
-      - "--entrypoints.websecure.address=:443" # Entrypoint para HTTPS
-      - "--certificatesresolvers.myresolver.acme.tlschallenge=true" # Utiliza el desafío TLS de Let's Encrypt
-      - "--certificatesresolvers.myresolver.acme.email=n1rocketdev@gmail.com" # Email para Let's Encrypt
-      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json" # Ruta de almacenamiento de certificados
-    ports:
-      - "80:80" # Puerto HTTP
-      - "443:443" # Puerto HTTPS
-      - "8080:8080" # Dashboard de Traefik
-    volumes:
-      - "/var/run/docker.sock:/var/run/docker.sock:ro" # Acceso al socket de Docker
-      - "./letsencrypt:/letsencrypt" # Almacena los certificados SSL
-    networks:
-      - web
-
   app:
     build:
       context: .
@@ -43,9 +21,8 @@ services:
       # Puerto del servicio interno
       - "traefik.http.services.app.loadbalancer.server.port=8080"
     networks:
-      - web
+      - traefik_proxy # Conecta a la red de Traefik
 
 networks:
-  web:
+  traefik_proxy:
     external: true
-    name: traefik_default
