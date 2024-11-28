@@ -5,21 +5,23 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    labels:
-      - "traefik.enable=true"
-      # Router para HTTPS
-      - "traefik.http.routers.app-secure.rule=Host(`n1rocket.com`)"
-      - "traefik.http.routers.app-secure.entrypoints=websecure"
-      - "traefik.http.routers.app-secure.tls=true"
-      - "traefik.http.routers.app-secure.tls.certresolver=myresolver"
-      # Router para HTTP que redirige a HTTPS
-      - "traefik.http.routers.app-insecure.rule=Host(`n1rocket.com`)"
-      - "traefik.http.routers.app-insecure.entrypoints=web"
-      - "traefik.http.routers.app-insecure.middlewares=redirect-to-https"
-      # Middleware para redirección
-      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
-      # Puerto del servicio interno
-      - "traefik.http.services.app.loadbalancer.server.port=8080"
+    ports:
+      - "80:8080"
+    # labels:
+    #   - "traefik.enable=true"
+    #   # Router para HTTPS
+    #   - "traefik.http.routers.app-secure.rule=Host(`n1rocket.com`)"
+    #   - "traefik.http.routers.app-secure.entrypoints=websecure"
+    #   - "traefik.http.routers.app-secure.tls=true"
+    #   - "traefik.http.routers.app-secure.tls.certresolver=myresolver"
+    #   # Router para HTTP que redirige a HTTPS
+    #   - "traefik.http.routers.app-insecure.rule=Host(`n1rocket.com`)"
+    #   - "traefik.http.routers.app-insecure.entrypoints=web"
+    #   - "traefik.http.routers.app-insecure.middlewares=redirect-to-https"
+    #   # Middleware para redirección
+    #   - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+    #   # Puerto del servicio interno
+    #   - "traefik.http.services.app.loadbalancer.server.port=8080"
     networks:
       - traefik_proxy # Conecta a la red de Traefik
 
