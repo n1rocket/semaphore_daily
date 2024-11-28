@@ -21,7 +21,7 @@ services:
       - "/var/run/docker.sock:/var/run/docker.sock:ro" # Acceso al socket de Docker
       - "./letsencrypt:/letsencrypt" # Almacena los certificados SSL
     networks:
-      - web
+      - traefik_proxy
 
   app:
     build:
