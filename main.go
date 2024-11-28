@@ -5,6 +5,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -21,6 +22,8 @@ type User struct {
 	JoinedAt  time.Time
 	HasSpoken bool
 	PressedAt time.Time
+	Send      chan Message // Canal para enviar mensajes al usuario
+	once      sync.Once
 }
 
 // Estructura para el mensaje WebSocket
@@ -58,6 +61,8 @@ var upgrader = websocket.Upgrader{
 }
 
 func main() {
+	go handleEvents()
+
 	router := gin.New()
 
 	router.GET("/ws", handleWebSocket)
@@ -65,8 +70,6 @@ func main() {
 	router.StaticFile("/", "./public/index.html")
 	router.Static("/static", "./public")
 	router.Run(":8080")
-
-	go handleEvents()
 }
 
 // Handler para las conexiones WebSocket
@@ -103,6 +106,7 @@ func handleWebSocket(c *gin.Context) {
 		Conn:     conn,
 		IsMaster: false,
 		JoinedAt: time.Now(),
+		Send:     make(chan Message, 256), // Canal con buffer de 256 mensajes
 	}
 
 	if master == nil {
@@ -141,12 +145,13 @@ func handleWebSocket(c *gin.Context) {
 
 	// Escuchar mensajes del usuario
 	go listenToUser(user)
+
+	go sendMessages(user)
 }
 
 func listenToUser(user *User) {
 	defer func() {
 		user.Conn.Close()
-		removeUser(user.Conn)
 	}()
 
 	for {
@@ -163,6 +168,20 @@ func listenToUser(user *User) {
 		}
 
 		eventChannel <- Event{User: user, Message: wsMsg}
+	}
+}
+
+func sendMessages(user *User) {
+	defer func() {
+		user.Conn.Close()
+		removeUser(user.Conn)
+	}()
+
+	for msg := range user.Send {
+		if err := user.Conn.WriteJSON(msg); err != nil {
+			log.Printf("Error al enviar mensaje a %s: %v", user.Name, err)
+			break
+		}
 	}
 }
 
@@ -185,11 +204,7 @@ func sendMeetingState(user *User) {
 		Type:    "meeting_state",
 		Payload: state,
 	}
-	if err := user.Conn.WriteJSON(msg); err != nil {
-		log.Printf("Error al enviar meeting_state a %s: %v", user.Name, err)
-	} else {
-		log.Printf("Enviado meeting_state a %s", user.Name)
-	}
+	user.Send <- msg
 }
 
 func sendUserList(user *User) {
@@ -398,16 +413,14 @@ func addVirtualUser() {
 
 // Función para restablecer el estado de la reunión
 func resetMeetingState() {
-	// Cerrar todas las conexiones WebSocket y limpiar el mapa de usuarios
-	for con := range users {
-		if err := con.WriteJSON(Message{
+	// Cerrar las conexiones y limpiar el mapa de usuarios
+	for _, user := range users {
+		// Enviar mensaje de reset antes de cerrar el canal
+		user.Send <- Message{
 			Type:    "meeting_reset",
 			Payload: nil,
-		}); err != nil {
-			log.Printf("Error al enviar mensaje de reset a %s: %v", users[con].Name, err)
 		}
-		con.Close()
-		delete(users, con)
+		close(user.Send) // Cerrar el canal Send para finalizar sendMessages()
 	}
 
 	master = nil
@@ -427,7 +440,13 @@ func removeUser(conn *websocket.Conn) {
 
 	user, exists := users[conn]
 
-	if exists {
+	if !exists {
+        return
+    }
+
+	user.once.Do(func() {
+        userName = user.Name
+
 		if user == master {
 			master = nil
 			// Asignar nuevo master si hay usuarios conectados
@@ -439,12 +458,12 @@ func removeUser(conn *websocket.Conn) {
 				}
 			}
 		}
-		userName = user.Name
+		close(user.Send)
 		delete(users, conn)
 		needToBroadcast = true
 		// Eliminar del mapa de botones presionados si estaba presente
 		delete(buttonPressed, user)
-	}
+    })
 
 	// Remover de turnOrder si está
 	for i, u := range turnOrder {
@@ -464,16 +483,11 @@ func removeUser(conn *websocket.Conn) {
 
 // Función para difundir mensajes a todos los usuarios
 func broadcast(msg Message) {
-	userConns := make([]*websocket.Conn, 0, len(users))
 	for _, user := range users {
-		userConns = append(userConns, user.Conn)
-	}
-
-	for _, conn := range userConns {
-		if err := conn.WriteJSON(msg); err != nil {
-			log.Printf("Error al enviar mensaje a un usuario: %v", err)
-			// Opcional: manejar la desconexión del usuario
-			removeUser(conn)
+		select {
+		case user.Send <- msg:
+		default:
+			log.Printf("El canal de mensajes de %s está lleno. Descartando mensaje.", user.Name)
 		}
 	}
 }
