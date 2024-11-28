@@ -61,6 +61,7 @@ var upgrader = websocket.Upgrader{
 }
 
 func main() {
+	log.Println("Servidor de reuniones iniciado. 1.0.0")
 	go handleEvents()
 
 	router := gin.New()
@@ -441,11 +442,11 @@ func removeUser(conn *websocket.Conn) {
 	user, exists := users[conn]
 
 	if !exists {
-        return
-    }
+		return
+	}
 
 	user.once.Do(func() {
-        userName = user.Name
+		userName = user.Name
 
 		if user == master {
 			master = nil
@@ -463,7 +464,7 @@ func removeUser(conn *websocket.Conn) {
 		needToBroadcast = true
 		// Eliminar del mapa de botones presionados si estaba presente
 		delete(buttonPressed, user)
-    })
+	})
 
 	// Remover de turnOrder si está
 	for i, u := range turnOrder {
