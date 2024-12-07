@@ -50,11 +50,17 @@ docker buildx create --name "${BUILDER_NAME}" --use --config ./buildkitd.toml ||
 info "Inicializando el builder '${BUILDER_NAME}'..."
 docker buildx inspect --bootstrap || error "Fallo al inicializar el builder '${BUILDER_NAME}'."
 
-# Construir y empujar la imagen para la arquitectura ARM64
-info "Construyendo y empujando la imagen para la arquitectura ARM64..."
+# Construir la imagen para la arquitectura ARM64 (sin push)
+info "Construyendo la imagen para la arquitectura ARM64 (sin push)..."
 docker buildx build --platform linux/arm64 \
     -t "${FULL_IMAGE_NAME}" \
-    --push \
-    . || error "Fallo al construir y empujar la imagen."
+    --load \
+    . || error "Fallo al construir la imagen."
 
-info "Imagen '${FULL_IMAGE_NAME}' construida y empujada exitosamente."
+info "Imagen '${FULL_IMAGE_NAME}' construida exitosamente."
+
+# Paso separado para empujar la imagen
+info "Empujando la imagen al registro '${REGISTRY_HOST}:${REGISTRY_PORT}'..."
+docker push "${FULL_IMAGE_NAME}" || error "Fallo al empujar la imagen al registro."
+
+info "Imagen '${FULL_IMAGE_NAME}' empujada exitosamente."
