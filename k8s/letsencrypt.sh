@@ -30,4 +30,10 @@ helm install cert-manager jetstack/cert-manager \
   --namespace cert-manager \
   --set installCRDs=true
 
+#kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.16.2/cert-manager.yaml
+
 echo "Cert-manager instalado con éxito."
+
+git clone https://github.com/baarde/cert-manager-webhook-ovh.git
+cd cert-manager-webhook-ovh
+helm install cert-manager-webhook-ovh ./deploy/cert-manager-webhook-ovh --set groupName='n1rocket.com'

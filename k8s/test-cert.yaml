@@ -1,0 +1,11 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: n1rocket-certificate
+spec:
+  dnsNames:
+    - n1rocket.com
+  issuerRef:
+    name: letsencrypt
+    kind: ClusterIssuer
+  secretName: n1rocket-test-tls

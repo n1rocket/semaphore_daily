@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "daily-n1rocket.fullname" . }}-test-connection"
+  labels:
+    {{- include "daily-n1rocket.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command: ['wget']
+      args: ['{{ include "daily-n1rocket.fullname" . }}:{{ .Values.service.port }}']
+  restartPolicy: Never
