@@ -47,7 +47,7 @@ ingress:
         - path: /
           pathType: Prefix
   tls:
-    - secretName: n1rocket-tls
+    - secretName: daily-n1rocket-tls
       hosts:
         - daily.n1rocket.com
 

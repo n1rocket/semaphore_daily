@@ -14,7 +14,7 @@
 
   function renderLogin() {
     app.innerHTML = `
-          <h1>Daily Meeting Manager</h1>
+          <h1>Daily Meeting Manager 1.0.0</h1>
           <input type="text" id="nameInput" placeholder="Ingresa tu nombre" />
           <button id="joinButton">Unirse</button>
       `;
